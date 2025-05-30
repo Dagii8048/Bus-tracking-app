@@ -1,300 +1,512 @@
-import React, { useState } from 'react';
-import { Plus, Search, Bus, Edit, Trash2, MoreVertical } from 'lucide-react';
-import BusForm from './BusForm';
+import React, { useState, useEffect } from "react";
+import {
+  busApi,
+  Bus,
+  CreateBusData,
+  UpdateBusData,
+} from "../../../services/api";
 
-interface Bus {
-  id: number;
-  plateNumber: string;
-  model: string;
-  capacity: number;
-  status: 'active' | 'maintenance' | 'out_of_service';
-  lastMaintenance: string;
-  currentRoute?: string;
-  driver?: string;
-}
-
-// Sample data
-const initialBuses: Bus[] = [
-  {
-    id: 1,
-    plateNumber: 'ABC123',
-    model: 'Mercedes-Benz O500',
-    capacity: 50,
-    status: 'active',
-    lastMaintenance: '2024-02-15',
-    currentRoute: 'Route 1',
-    driver: 'John Doe',
-  },
-  {
-    id: 2,
-    plateNumber: 'XYZ789',
-    model: 'Volvo B7R',
-    capacity: 45,
-    status: 'active',
-    lastMaintenance: '2024-02-10',
-    currentRoute: 'Route 2',
-    driver: 'Jane Smith',
-  },
-];
-
-const BusManagement: React.FC = () => {
-  const [buses, setBuses] = useState<Bus[]>(initialBuses);
+const BusManagement = () => {
+  const [buses, setBuses] = useState<Bus[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
   const [isModalOpen, setIsModalOpen] = useState(false);
-  const [selectedBus, setSelectedBus] = useState<Bus | undefined>();
-  const [searchTerm, setSearchTerm] = useState('');
-  const [statusFilter, setStatusFilter] = useState('');
-  const [sortBy, setSortBy] = useState('');
+  const [selectedBus, setSelectedBus] = useState<Bus | null>(null);
+  const [formData, setFormData] = useState<CreateBusData | UpdateBusData>({
+    plateNumber: "",
+    model: "",
+    capacity: 0,
+    status: "active",
+    currentLocation: {
+      type: "Point",
+      coordinates: [0, 0], // [longitude, latitude]
+    },
+    lastMaintenance: new Date().toISOString(),
+    nextMaintenance: new Date(
+      Date.now() + 30 * 24 * 60 * 60 * 1000
+    ).toISOString(), // 30 days from now
+  });
 
-  const handleAddBus = () => {
-    setSelectedBus(undefined);
-    setIsModalOpen(true);
-  };
+  useEffect(() => {
+    fetchBuses();
+  }, []);
 
-  const handleEditBus = (bus: Bus) => {
-    setSelectedBus(bus);
-    setIsModalOpen(true);
-  };
-
-  const handleDeleteBus = async (busId: number) => {
-    if (window.confirm('Are you sure you want to delete this bus?')) {
-      try {
-        const response = await fetch(`/api/buses/${busId}`, {
-          method: 'DELETE',
-        });
-
-        if (response.ok) {
-          setBuses(buses.filter(bus => bus.id !== busId));
-        } else {
-          console.error('Failed to delete bus');
-        }
-      } catch (error) {
-        console.error('An error occurred while deleting bus:', error);
-      }
+  const fetchBuses = async () => {
+    try {
+      const data = await busApi.getBuses();
+      setBuses(data);
+    } catch (err) {
+      setError("An error occurred while fetching buses");
+    } finally {
+      setLoading(false);
     }
   };
 
-  const handleSubmit = async (busData: Omit<Bus, 'id'>) => {
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
     try {
       if (selectedBus) {
-        // Update existing bus
-        const response = await fetch(`/api/buses/${selectedBus.id}`, {
-          method: 'PUT',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify(busData),
-        });
-
-        if (response.ok) {
-          const updatedBus = await response.json();
-          setBuses(buses.map(bus =>
-            bus.id === selectedBus.id ? updatedBus : bus
-          ));
-        }
+        await busApi.updateBus(selectedBus.id, formData as UpdateBusData);
       } else {
-        // Add new bus
-        const response = await fetch('/api/buses', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify(busData),
-        });
-
-        if (response.ok) {
-          const newBus = await response.json();
-          setBuses([...buses, newBus]);
-        }
+        await busApi.createBus(formData as CreateBusData);
       }
       setIsModalOpen(false);
-    } catch (error) {
-      console.error('An error occurred while saving bus:', error);
+      setSelectedBus(null);
+      setFormData({
+        plateNumber: "",
+        model: "",
+        capacity: 0,
+        status: "active",
+        currentLocation: {
+          type: "Point",
+          coordinates: [0, 0],
+        },
+        lastMaintenance: new Date().toISOString(),
+        nextMaintenance: new Date(
+          Date.now() + 30 * 24 * 60 * 60 * 1000
+        ).toISOString(),
+      });
+      fetchBuses();
+    } catch (err) {
+      setError("An error occurred while saving bus");
     }
   };
 
-  const filteredBuses = buses
-    .filter(bus => {
-      const matchesSearch = bus.plateNumber.toLowerCase().includes(searchTerm.toLowerCase()) ||
-                          bus.model.toLowerCase().includes(searchTerm.toLowerCase()) ||
-                          (bus.driver?.toLowerCase().includes(searchTerm.toLowerCase()) || false);
-      const matchesStatus = !statusFilter || bus.status === statusFilter;
-      return matchesSearch && matchesStatus;
-    })
-    .sort((a, b) => {
-      if (!sortBy) return 0;
-      switch (sortBy) {
-        case 'plateNumber':
-          return a.plateNumber.localeCompare(b.plateNumber);
-        case 'capacity':
-          return b.capacity - a.capacity;
-        case 'lastMaintenance':
-          return new Date(b.lastMaintenance).getTime() - new Date(a.lastMaintenance).getTime();
-        default:
-          return 0;
-      }
+  const handleEdit = (bus: Bus) => {
+    setSelectedBus(bus);
+    setFormData({
+      plateNumber: bus.plateNumber,
+      model: bus.model,
+      capacity: bus.capacity,
+      status: bus.status,
+      currentLocation: bus.currentLocation,
+      lastMaintenance: bus.lastMaintenance,
+      nextMaintenance: bus.nextMaintenance,
     });
+    setIsModalOpen(true);
+  };
+
+  const handleDelete = async (busId: string) => {
+    if (window.confirm("Are you sure you want to delete this bus?")) {
+      try {
+        await busApi.deleteBus(busId);
+        fetchBuses();
+      } catch (err) {
+        setError("An error occurred while deleting bus");
+      }
+    }
+  };
+
+  const handleStatusChange = async (
+    busId: string,
+    newStatus: "active" | "maintenance" | "inactive"
+  ) => {
+    try {
+      await busApi.updateBusStatus(busId, newStatus);
+      fetchBuses();
+    } catch (err) {
+      setError("An error occurred while updating bus status");
+    }
+  };
+
+  if (loading) {
+    return (
+      <div className="flex justify-center items-center h-64">
+        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-indigo-600"></div>
+      </div>
+    );
+  }
 
   return (
-    <div className="space-y-6">
-      <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-bold text-gray-900">Bus Management</h1>
-        <button
-          onClick={handleAddBus}
-          className="bg-blue-700 hover:bg-blue-800 text-white py-2 px-4 rounded-md text-sm flex items-center"
-        >
-          <Plus size={16} className="mr-2" />
-          <span>Add Bus</span>
-        </button>
-      </div>
-
-      {/* Filters and Search */}
-      <div className="flex flex-col sm:flex-row justify-between gap-4">
-        <div className="relative w-full sm:w-64">
-          <input
-            type="text"
-            placeholder="Search buses..."
-            value={searchTerm}
-            onChange={(e) => setSearchTerm(e.target.value)}
-            className="w-full rounded-lg border border-gray-300 pl-10 pr-4 py-2 focus:border-blue-500 focus:ring-1 focus:ring-blue-500 outline-none"
-          />
-          <Search size={18} className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400" />
+    <div className="p-6">
+      <div className="sm:flex sm:items-center">
+        <div className="sm:flex-auto">
+          <h1 className="text-2xl font-semibold text-gray-900">
+            Bus Management
+          </h1>
+          <p className="mt-2 text-sm text-gray-700">
+            A list of all buses in the system including their plate numbers,
+            models, and current status.
+          </p>
         </div>
-
-        <div className="flex flex-wrap gap-2">
-          <select
-            value={statusFilter}
-            onChange={(e) => setStatusFilter(e.target.value)}
-            className="border border-gray-300 rounded-md shadow-sm py-2 px-3 bg-white focus:outline-none focus:ring-blue-500 focus:border-blue-500 text-sm"
+        <div className="mt-4 sm:mt-0 sm:ml-16 sm:flex-none">
+          <button
+            type="button"
+            onClick={() => {
+              setSelectedBus(null);
+              setFormData({
+                plateNumber: "",
+                model: "",
+                capacity: 0,
+                status: "active",
+                currentLocation: {
+                  type: "Point",
+                  coordinates: [0, 0],
+                },
+                lastMaintenance: new Date().toISOString(),
+                nextMaintenance: new Date(
+                  Date.now() + 30 * 24 * 60 * 60 * 1000
+                ).toISOString(),
+              });
+              setIsModalOpen(true);
+            }}
+            className="inline-flex items-center justify-center rounded-md border border-transparent bg-indigo-600 px-4 py-2 text-sm font-medium text-white shadow-sm hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2 sm:w-auto"
           >
-            <option value="">All Statuses</option>
-            <option value="active">Active</option>
-            <option value="maintenance">Maintenance</option>
-            <option value="out_of_service">Out of Service</option>
-          </select>
-          
-          <select
-            value={sortBy}
-            onChange={(e) => setSortBy(e.target.value)}
-            className="border border-gray-300 rounded-md shadow-sm py-2 px-3 bg-white focus:outline-none focus:ring-blue-500 focus:border-blue-500 text-sm"
-          >
-            <option value="">Sort By</option>
-            <option value="plateNumber">Plate Number</option>
-            <option value="capacity">Capacity</option>
-            <option value="lastMaintenance">Last Maintenance</option>
-          </select>
+            Add bus
+          </button>
         </div>
       </div>
 
-      {/* Buses Table */}
-      <div className="bg-white rounded-lg shadow-sm overflow-hidden">
-        <div className="overflow-x-auto">
-          <table className="min-w-full divide-y divide-gray-200">
-            <thead className="bg-gray-50">
-              <tr>
-                <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Bus Details
-                </th>
-                <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Driver
-                </th>
-                <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Current Route
-                </th>
-                <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Status
-                </th>
-                <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Last Maintenance
-                </th>
-                <th scope="col" className="relative px-6 py-3">
-                  <span className="sr-only">Actions</span>
-                </th>
-              </tr>
-            </thead>
-            <tbody className="bg-white divide-y divide-gray-200">
-              {filteredBuses.map((bus) => (
-                <tr key={bus.id} className="hover:bg-gray-50">
-                  <td className="px-6 py-4 whitespace-nowrap">
-                    <div className="flex items-center">
-                      <div className="h-10 w-10 flex-shrink-0 rounded-full bg-blue-100 flex items-center justify-center">
-                        <Bus className="h-5 w-5 text-blue-700" />
-                      </div>
-                      <div className="ml-4">
-                        <div className="text-sm font-medium text-gray-900">{bus.plateNumber}</div>
-                        <div className="text-xs text-gray-500">{bus.model} - {bus.capacity} seats</div>
-                      </div>
-                    </div>
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                    {bus.driver || 'Unassigned'}
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                    {bus.currentRoute || 'Not Assigned'}
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap">
-                    <span className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${
-                      bus.status === 'active' 
-                        ? 'bg-green-100 text-green-800' 
-                        : bus.status === 'maintenance' 
-                        ? 'bg-yellow-100 text-yellow-800' 
-                        : 'bg-red-100 text-red-800'
-                    }`}>
-                      {bus.status.replace('_', ' ')}
-                    </span>
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                    {new Date(bus.lastMaintenance).toLocaleDateString()}
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
-                    <div className="flex space-x-2 justify-end">
-                      <button
-                        onClick={() => handleEditBus(bus)}
-                        className="text-blue-600 hover:text-blue-900"
-                      >
-                        <Edit size={16} />
-                      </button>
-                      <button
-                        onClick={() => handleDeleteBus(bus.id)}
-                        className="text-red-600 hover:text-red-900"
-                      >
-                        <Trash2 size={16} />
-                      </button>
-                      <button className="text-gray-400 hover:text-gray-600">
-                        <MoreVertical size={16} />
-                      </button>
-                    </div>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+      {error && (
+        <div className="mt-4 rounded-md bg-red-50 p-4">
+          <div className="text-sm text-red-700">{error}</div>
         </div>
+      )}
 
-        {/* Pagination */}
-        <div className="bg-white px-4 py-3 flex items-center justify-between border-t border-gray-200 sm:px-6">
-          <div className="hidden sm:flex-1 sm:flex sm:items-center sm:justify-between">
-            <div>
-              <p className="text-sm text-gray-700">
-                Showing <span className="font-medium">1</span> to <span className="font-medium">{filteredBuses.length}</span> of{' '}
-                <span className="font-medium">{filteredBuses.length}</span> buses
-              </p>
+      <div className="mt-8 flex flex-col">
+        <div className="-my-2 -mx-4 overflow-x-auto sm:-mx-6 lg:-mx-8">
+          <div className="inline-block min-w-full py-2 align-middle md:px-6 lg:px-8">
+            <div className="overflow-hidden shadow ring-1 ring-black ring-opacity-5 md:rounded-lg">
+              <table className="min-w-full divide-y divide-gray-300">
+                <thead className="bg-gray-50">
+                  <tr>
+                    <th
+                      scope="col"
+                      className="py-3.5 pl-4 pr-3 text-left text-sm font-semibold text-gray-900 sm:pl-6"
+                    >
+                      Plate Number
+                    </th>
+                    <th
+                      scope="col"
+                      className="px-3 py-3.5 text-left text-sm font-semibold text-gray-900"
+                    >
+                      Model
+                    </th>
+                    <th
+                      scope="col"
+                      className="px-3 py-3.5 text-left text-sm font-semibold text-gray-900"
+                    >
+                      Capacity
+                    </th>
+                    <th
+                      scope="col"
+                      className="px-3 py-3.5 text-left text-sm font-semibold text-gray-900"
+                    >
+                      Status
+                    </th>
+                    <th
+                      scope="col"
+                      className="px-3 py-3.5 text-left text-sm font-semibold text-gray-900"
+                    >
+                      Last Maintenance
+                    </th>
+                    <th
+                      scope="col"
+                      className="px-3 py-3.5 text-left text-sm font-semibold text-gray-900"
+                    >
+                      Next Maintenance
+                    </th>
+                    <th
+                      scope="col"
+                      className="relative py-3.5 pl-3 pr-4 sm:pr-6"
+                    >
+                      <span className="sr-only">Actions</span>
+                    </th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-gray-200 bg-white">
+                  {buses.map((bus) => (
+                    <tr key={bus.id}>
+                      <td className="whitespace-nowrap py-4 pl-4 pr-3 text-sm font-medium text-gray-900 sm:pl-6">
+                        {bus.plateNumber}
+                      </td>
+                      <td className="whitespace-nowrap px-3 py-4 text-sm text-gray-500">
+                        {bus.model}
+                      </td>
+                      <td className="whitespace-nowrap px-3 py-4 text-sm text-gray-500">
+                        {bus.capacity}
+                      </td>
+                      <td className="whitespace-nowrap px-3 py-4 text-sm text-gray-500">
+                        <select
+                          value={bus.status}
+                          onChange={(e) =>
+                            handleStatusChange(
+                              bus.id,
+                              e.target.value as
+                                | "active"
+                                | "maintenance"
+                                | "inactive"
+                            )
+                          }
+                          className={`rounded-full px-2 py-1 text-xs font-medium ${
+                            bus.status === "active"
+                              ? "bg-green-100 text-green-800"
+                              : bus.status === "maintenance"
+                              ? "bg-yellow-100 text-yellow-800"
+                              : "bg-red-100 text-red-800"
+                          }`}
+                        >
+                          <option value="active">Active</option>
+                          <option value="maintenance">Maintenance</option>
+                          <option value="inactive">Inactive</option>
+                        </select>
+                      </td>
+                      <td className="whitespace-nowrap px-3 py-4 text-sm text-gray-500">
+                        {new Date(bus.lastMaintenance).toLocaleDateString()}
+                      </td>
+                      <td className="whitespace-nowrap px-3 py-4 text-sm text-gray-500">
+                        {new Date(bus.nextMaintenance).toLocaleDateString()}
+                      </td>
+                      <td className="relative whitespace-nowrap py-4 pl-3 pr-4 text-right text-sm font-medium sm:pr-6">
+                        <button
+                          onClick={() => handleEdit(bus)}
+                          className="text-indigo-600 hover:text-indigo-900 mr-4"
+                        >
+                          Edit
+                        </button>
+                        <button
+                          onClick={() => handleDelete(bus.id)}
+                          className="text-red-600 hover:text-red-900"
+                        >
+                          Delete
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
             </div>
           </div>
         </div>
       </div>
 
-      {/* Add/Edit Bus Modal */}
+      {/* Modal */}
       {isModalOpen && (
         <div className="fixed inset-0 bg-gray-500 bg-opacity-75 flex items-center justify-center">
           <div className="bg-white rounded-lg p-6 max-w-2xl w-full">
             <h2 className="text-lg font-medium mb-4">
-              {selectedBus ? 'Edit Bus' : 'Add New Bus'}
+              {selectedBus ? "Edit Bus" : "Add New Bus"}
             </h2>
-            <BusForm
-              bus={selectedBus}
-              onSubmit={handleSubmit}
-              onCancel={() => setIsModalOpen(false)}
-            />
+            <form onSubmit={handleSubmit} className="grid grid-cols-2 gap-4">
+              <div>
+                <label
+                  htmlFor="plateNumber"
+                  className="block text-sm font-medium text-gray-700"
+                >
+                  Plate Number
+                </label>
+                <input
+                  type="text"
+                  id="plateNumber"
+                  value={formData.plateNumber}
+                  onChange={(e) =>
+                    setFormData({ ...formData, plateNumber: e.target.value })
+                  }
+                  className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm px-4 py-2"
+                  required
+                />
+              </div>
+
+              <div>
+                <label
+                  htmlFor="model"
+                  className="block text-sm font-medium text-gray-700"
+                >
+                  Model
+                </label>
+                <input
+                  type="text"
+                  id="model"
+                  value={formData.model}
+                  onChange={(e) =>
+                    setFormData({ ...formData, model: e.target.value })
+                  }
+                  className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm px-4 py-2"
+                  required
+                />
+              </div>
+
+              <div>
+                <label
+                  htmlFor="capacity"
+                  className="block text-sm font-medium text-gray-700"
+                >
+                  Capacity
+                </label>
+                <input
+                  type="number"
+                  id="capacity"
+                  value={formData.capacity}
+                  onChange={(e) =>
+                    setFormData({
+                      ...formData,
+                      capacity: Number(e.target.value),
+                    })
+                  }
+                  className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm px-4 py-2"
+                  required
+                  min="1"
+                />
+              </div>
+
+              <div>
+                <label
+                  htmlFor="status"
+                  className="block text-sm font-medium text-gray-700"
+                >
+                  Status
+                </label>
+                <select
+                  id="status"
+                  value={formData.status}
+                  onChange={(e) =>
+                    setFormData({
+                      ...formData,
+                      status: e.target.value as
+                        | "active"
+                        | "maintenance"
+                        | "inactive",
+                    })
+                  }
+                  className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm px-4 py-2"
+                  required
+                >
+                  <option value="active">Active</option>
+                  <option value="maintenance">Maintenance</option>
+                  <option value="inactive">Inactive</option>
+                </select>
+              </div>
+
+              <div>
+                <label
+                  htmlFor="lastMaintenance"
+                  className="block text-sm font-medium text-gray-700"
+                >
+                  Last Maintenance
+                </label>
+                <input
+                  type="date"
+                  id="lastMaintenance"
+                  value={
+                    new Date(formData.lastMaintenance)
+                      .toISOString()
+                      .split("T")[0]
+                  }
+                  onChange={(e) =>
+                    setFormData({
+                      ...formData,
+                      lastMaintenance: new Date(e.target.value).toISOString(),
+                    })
+                  }
+                  className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm px-4 py-2"
+                  required
+                />
+              </div>
+
+              <div>
+                <label
+                  htmlFor="nextMaintenance"
+                  className="block text-sm font-medium text-gray-700"
+                >
+                  Next Maintenance
+                </label>
+                <input
+                  type="date"
+                  id="nextMaintenance"
+                  value={
+                    new Date(formData.nextMaintenance)
+                      .toISOString()
+                      .split("T")[0]
+                  }
+                  onChange={(e) =>
+                    setFormData({
+                      ...formData,
+                      nextMaintenance: new Date(e.target.value).toISOString(),
+                    })
+                  }
+                  className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm px-4 py-2"
+                  required
+                />
+              </div>
+
+              <div>
+                <label
+                  htmlFor="latitude"
+                  className="block text-sm font-medium text-gray-700"
+                >
+                  Latitude
+                </label>
+                <input
+                  type="number"
+                  id="latitude"
+                  value={formData.currentLocation.coordinates[1]}
+                  onChange={(e) =>
+                    setFormData({
+                      ...formData,
+                      currentLocation: {
+                        ...formData.currentLocation,
+                        coordinates: [
+                          formData.currentLocation.coordinates[0],
+                          Number(e.target.value),
+                        ],
+                      },
+                    })
+                  }
+                  className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm px-4 py-2"
+                  required
+                  step="0.000001"
+                  min="-90"
+                  max="90"
+                />
+              </div>
+
+              <div>
+                <label
+                  htmlFor="longitude"
+                  className="block text-sm font-medium text-gray-700"
+                >
+                  Longitude
+                </label>
+                <input
+                  type="number"
+                  id="longitude"
+                  value={formData.currentLocation.coordinates[0]}
+                  onChange={(e) =>
+                    setFormData({
+                      ...formData,
+                      currentLocation: {
+                        ...formData.currentLocation,
+                        coordinates: [
+                          Number(e.target.value),
+                          formData.currentLocation.coordinates[1],
+                        ],
+                      },
+                    })
+                  }
+                  className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm px-4 py-2"
+                  required
+                  step="0.000001"
+                  min="-180"
+                  max="180"
+                />
+              </div>
+
+              <div className="col-span-2 flex justify-end space-x-3">
+                <button
+                  type="button"
+                  onClick={() => setIsModalOpen(false)}
+                  className="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-md shadow-sm hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  className="px-4 py-2 text-sm font-medium text-white bg-blue-600 border border-transparent rounded-md shadow-sm hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
+                >
+                  {selectedBus ? "Update" : "Create"}
+                </button>
+              </div>
+            </form>
           </div>
         </div>
       )}

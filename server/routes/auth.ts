@@ -2,7 +2,8 @@ import express, { Request, Response, NextFunction, RequestHandler } from 'expres
 import {
   register,
   login,
-  getProfile
+  getProfile,
+  changePassword
 } from '../controllers/authController';
 import { auth } from '../middleware/auth';
 import { checkRole } from '../middleware/auth';
@@ -37,5 +38,6 @@ router.post('/login', login as RequestHandler);
 // Protected routes
 router.use(auth);
 router.get('/profile', getProfile as RequestHandler);
+router.post('/change-password', changePassword as RequestHandler);
 
 export default router; 

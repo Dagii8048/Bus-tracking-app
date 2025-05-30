@@ -35,7 +35,8 @@ export const getRouteById: RequestHandler = async (req, res) => {
   try {
     const route = await Route.findById(req.params.id).populate('stations');
     if (!route) {
-      return res.status(404).json({ error: 'Route not found' });
+      res.status(404).json({ error: 'Route not found' });
+      return;
     }
     res.json(route);
   } catch (error) {
